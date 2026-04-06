@@ -1,1 +1,48 @@
-[]
+[
+  {
+    "id": "tmpl-1775453258631",
+    "name": "Implement Jira Ticket",
+    "description": "Picks up a ticket and implements it on the specified branch",
+    "command": "dev:implement",
+    "args": "{arg.ticket} Base Branch: {arg.branch}",
+    "freePrompt": "",
+    "projectPath": "/Users/josepaoloraya.javier/Documents/Repos/AI",
+    "allowPermissions": true,
+    "argDefs": [
+      {
+        "name": "ticket",
+        "description": "Jira ticket ID",
+        "defaultValue": ""
+      },
+      {
+        "name": "branch",
+        "description": "Base branch to cut from",
+        "defaultValue": "dev"
+      }
+    ],
+    "createdAt": "2026-04-06T05:27:38.631Z"
+  },
+  {
+    "id": "tmpl-1775462293810",
+    "name": "Update Rakuten Travel Architecture",
+    "description": "Workflow for updating Rakuten Travel Architecture given a confluence/image link and a project tag.",
+    "command": "dev:architect",
+    "args": "~/Documents/Repos/Arkynate/arkynate-atlas/registry/rakuten-travel.yaml \"Update based on: {arg.source} which can be confluence page or image, for confluence, please download and view attached images to get full picture of changes architecture related. Tag components modified or included with: {arg.tag}. Before modifying the YAML, back up the current file to /Users/josepaoloraya.javier/Documents/Repos/Everest/Architecture/backup/ — name it rakuten-travel-backup-<YYYYMMDD>.yaml. Follow existing YAML conventions, preserve all component keys outside the scoped tag, and bump the version.\"",
+    "freePrompt": "",
+    "projectPath": "/Users/josepaoloraya.javier/Documents/Repos/Everest",
+    "allowPermissions": true,
+    "argDefs": [
+      {
+        "name": "source",
+        "description": "Confluence page URL or local image/screenshot path describing the architecture changes",
+        "defaultValue": ""
+      },
+      {
+        "name": "tag",
+        "description": "Project tag to scope updates (e.g. hotel-booking, checkout, auth)",
+        "defaultValue": ""
+      }
+    ],
+    "createdAt": "2026-04-06T07:58:13.810Z"
+  }
+]

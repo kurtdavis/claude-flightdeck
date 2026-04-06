@@ -1853,7 +1853,7 @@ function saveTemplates(list) {
 app.get('/api/templates', (_req, res) => res.json(loadTemplates()));
 
 app.post('/api/templates', (req, res) => {
-  const { name, description, command, args, freePrompt, projectPath, allowPermissions } = req.body;
+  const { name, description, command, args, freePrompt, projectPath, allowPermissions, argDefs } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
   const tmpl = {
     id: `tmpl-${Date.now()}`,
@@ -1861,6 +1861,7 @@ app.post('/api/templates', (req, res) => {
     command: command || '', args: args || '', freePrompt: freePrompt || '',
     projectPath: projectPath || '',
     allowPermissions: allowPermissions !== false,
+    argDefs: Array.isArray(argDefs) ? argDefs : [],
     createdAt: new Date().toISOString()
   };
   const list = loadTemplates();
