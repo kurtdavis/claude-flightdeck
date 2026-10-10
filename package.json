@@ -1,12 +1,12 @@
 {
   "name": "claude-flightdeck",
   "version": "2.0.0",
-  "description": "Claude Flightdeck — visual control panel for Claude Code: file explorer, agent runner, webhooks, polls, and schedules",
+  "description": "Claude Flightdeck \u2014 visual control panel for Claude Code: file explorer, agent runner, webhooks, polls, and schedules",
   "main": "server.js",
   "scripts": {
-    "dev": "concurrently \"nodemon server.js\" \"cd client && npm run dev\"",
-    "build": "cd client && npm run build",
-    "start": "npm run build && node server.js",
+    "dev": "concurrently \"nodemon server.js\" \"pnpm --filter claude-flightdeck-client dev\"",
+    "build": "pnpm --filter claude-flightdeck-client build",
+    "start": "pnpm build && node server.js",
     "server": "node server.js"
   },
   "dependencies": {
@@ -16,5 +16,6 @@
   "devDependencies": {
     "concurrently": "^8.2.0",
     "nodemon": "^3.0.2"
-  }
+  },
+  "packageManager": "pnpm@11.23.0"
 }

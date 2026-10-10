@@ -261,7 +261,7 @@ export default function App() {
               display: 'flex', flexDirection: 'column', overflow: 'hidden'
             }}>
               <div style={{ padding: '8px 12px 6px', fontSize: 10, color: '#484f58', textTransform: 'uppercase', letterSpacing: 0.8, borderBottom: '1px solid #30363d' }}>
-                Explorer — ~/.claude
+                Explorer — vh-agents/.claude
               </div>
               <div style={{ flex: 1, overflow: 'auto' }}>
                 <FileExplorer
@@ -299,7 +299,7 @@ export default function App() {
                   background: '#161b22', borderBottom: '1px solid #30363d', flexShrink: 0
                 }}>
                   <span style={{ fontSize: 11, color: '#8b949e', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {selectedFile.replace(/.*\/\.claude\//, '~/.claude/')}
+                    {selectedFile.replace(/.*\/\.claude\//, 'vh-agents/.claude/')}
                   </span>
                   {isDirty && <span style={{ fontSize: 11, color: '#f0883e', flexShrink: 0 }}>●</span>}
                   {selectedFile.includes('/commands/') && (

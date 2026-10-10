@@ -19,7 +19,7 @@ async function testWebhook(id, payload) {
 
 const BLANK_FORM = {
   name: '', triggerKey: '', command: '', projectPath: '',
-  argTemplate: '', secret: '', defaultPayload: '', allowPermissions: true, enabled: true
+  argTemplate: '', secret: '', defaultPayload: '', allowPermissions: false, enabled: true
 };
 
 const LS_KEY = 'claude-flightdeck-test-payloads';
@@ -114,7 +114,7 @@ export default function WebhookManager({ onViewRuns }) {
     return acc;
   }, {});
 
-  const origin = window.location.origin.replace(':5173', ':3001'); // vite dev proxy fix
+  const origin = window.location.origin.replace(':5173', ':1337'); // vite dev proxy fix
   const webhookBaseUrl = origin;
 
   return (

@@ -6,7 +6,7 @@
 
 **A visual control panel for [Claude Code](https://claude.ai/code)** — explore your agent ecosystem, run commands, schedule automations, and monitor everything in real time.
 
-Claude Flightdeck turns your `~/.claude` directory into a full-featured workspace. Visualize how your agents, commands, and skills interconnect, edit files with syntax highlighting, execute workflows with live streaming output, and set up automated jobs that run on schedules or respond to webhooks and JIRA tickets.
+Claude Flightdeck turns the vh-agents `.claude` directory into a full-featured workspace. Visualize how your agents, commands, and skills interconnect, edit files with syntax highlighting, execute workflows with live streaming output, and set up automated jobs that run on schedules or respond to webhooks and JIRA tickets.
 
 **Project Owner:** Jose Paolo "Javi" Javier
 
@@ -44,7 +44,7 @@ Set up JIRA-driven or cron-based scheduled jobs that auto-trigger Claude command
 
 | Feature | Description |
 |---|---|
-| **File Explorer** | Browse and manage your `~/.claude` directory with drag-drop, inline folder creation, and context menus |
+| **File Explorer** | Browse and manage the vh-agents `.claude` directory with drag-drop, inline folder creation, and context menus |
 | **Relationship Graph** | Interactive ReactFlow node graph mapping connections between commands, orchestrators, agents, skills, hooks, and external services |
 | **Dual-View Editor** | Monaco-powered editor with syntax highlighting (Markdown, JSON, JS, TS, YAML) — opens side-by-side with the graph |
 | **Node Inspection** | Click any node to see its connections, open in editor, focus its subgraph, or run it directly |
@@ -55,7 +55,7 @@ Set up JIRA-driven or cron-based scheduled jobs that auto-trigger Claude command
 
 | Feature | Description |
 |---|---|
-| **Command Runner** | Select any command from `~/.claude/commands/`, attach files, set arguments/context, and choose a project directory |
+| **Command Runner** | Select any command from `<config>/commands/` (vh-agents currently has none), attach files, set arguments/context, and choose a project directory |
 | **Live Streaming** | Real-time SSE output with per-line elapsed timestamps, auto-scroll, and URL auto-linking |
 | **Run History** | Full execution log with status badges, duration, exit codes — re-run any previous execution with one click |
 | **Interactive Sessions** | When Claude pauses to ask a question, respond directly in the UI with yes/no or custom input |
@@ -85,7 +85,7 @@ Set up JIRA-driven or cron-based scheduled jobs that auto-trigger Claude command
 
 - **Node.js** 18+
 - **[Claude Code CLI](https://claude.ai/code)** installed and accessible as `claude`
-- **pm2** (optional — `npm install -g pm2`) for production deployment
+- **pm2** (optional — `pnpm add -g pm2`) for production deployment
 
 ### Install & Deploy
 
@@ -97,7 +97,7 @@ cd claude-flightdeck
 bash deploy.sh
 
 # Open in browser
-open http://localhost:3001
+open http://localhost:1337
 ```
 
 ### Deploy Commands
@@ -114,9 +114,8 @@ bash deploy.sh delete      # Remove from pm2 entirely
 ### Development Mode
 
 ```bash
-npm install
-cd client && npm install && cd ..
-npm run dev    # Starts backend (nodemon) + Vite dev server concurrently
+pnpm install     # installs server + client (pnpm workspace)
+pnpm dev    # Starts backend (nodemon) + Vite dev server concurrently
 ```
 
 ---
@@ -153,34 +152,26 @@ claude-manager/
 
 ---
 
-## Expected Claude File Locations
+## Config Location (vh-agents)
 
-Claude Flightdeck reads from and manages the standard Claude Code directory at `~/.claude/`:
+Flightdeck reads and manages the **vh-agents** crew config, not your personal `~/.claude`. By default it
+looks at the sibling repo `../vh-agents/.claude` (i.e. `/opt/viv-claude/vh-agents/.claude`). Point it
+elsewhere with `FLIGHTDECK_CONFIG_DIR=/abs/path/to/.claude`.
 
 ```
-~/.claude/
-├── CLAUDE.md                    # Global instructions loaded in every session
-├── settings.json                # Permissions, env vars, hooks, MCP servers
-├── plugins.local.md             # Local credentials (Jira/Confluence PATs) — not synced
-├── agents/                      # Agent definitions (orchestrators + workers)
-│   ├── task-director.md
-│   ├── backend-engineer.md
-│   └── ...
-├── commands/                    # Slash command entry points
-│   ├── dev/
-│   │   ├── plan.md              # /dev:plan
-│   │   ├── implement.md         # /dev:implement
-│   │   └── ...
-│   └── doc/
-│       └── ...
-├── skills/                      # Domain reference knowledge injected into agents
-│   ├── dev/
-│   ├── docs/
-│   └── ...
-└── hooks/                       # Hook scripts (lifecycle event handlers)
-    ├── cl-observe.sh
-    └── cl-stop.sh
+vh-agents/
+├── .mcp.json                    # MCP servers (Atlassian, Playwright) — read for the services view
+└── .claude/
+    ├── settings.json            # Permissions + guard hook registration (read-only in the UI)
+    ├── agents/                  # dalinar, raoden, jasnah, steris
+    ├── skills/<name>/SKILL.md   # ext-api-handler, vh-web-ui, build-e2e-test, ...
+    └── hooks/guard.js           # Secret/permission guard (read-only in the UI)
 ```
+
+File API rules: only paths inside that `.claude` directory are readable or writable (symlinks and `..`
+are resolved); `hooks/` and `settings*.json` can be read but not changed from the UI; `.env*`,
+`.npmrc`, `*.pem`, `*.key` and `settings.local.json` are never served. The server binds to
+`127.0.0.1` only.
 
 ### `plugins.local.md` — Credential Format
 
@@ -193,7 +184,7 @@ jira_url: https://your-jira.example.com/jira
 jira_pat: YOUR_JIRA_PAT
 ```
 
-For Jira Cloud (email + API token), configure instead in `~/.claude/settings.json`:
+For Jira Cloud (email + API token), configure instead in `<config>/settings.json`:
 
 ```json
 {
@@ -255,7 +246,7 @@ cp schedules.example.json schedules.json
 
 ### Port
 
-Default port is `3001`. Override via environment variable:
+Default port is `1337`. Override via environment variable:
 
 ```bash
 PORT=4000 bash deploy.sh

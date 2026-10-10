@@ -6,8 +6,8 @@ Thanks for your interest in contributing! Here's how to get started.
 
 1. **Fork** the repository
 2. **Clone** your fork locally
-3. **Install dependencies**: `npm install && cd client && npm install`
-4. **Run in dev mode**: `npm run dev` (starts server + client with hot reload)
+3. **Install dependencies**: `pnpm install` (installs server and client)
+4. **Run in dev mode**: `pnpm dev` (starts server + client with hot reload)
 5. **Create a branch** for your change: `git checkout -b my-feature`
 
 ## Making Changes
