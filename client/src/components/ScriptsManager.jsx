@@ -127,7 +127,7 @@ function TokenHint({ tokens }) {
 
 // ─── Template Form ────────────────────────────────────────────────────────────
 
-const BLANK_TMPL = { name: '', description: '', command: '', args: '', freePrompt: '', projectPath: '', allowPermissions: true, argDefs: [] };
+const BLANK_TMPL = { name: '', description: '', command: '', args: '', freePrompt: '', projectPath: '', allowPermissions: false, argDefs: [] };
 
 const ARGS_HINT = 'Use {arg.name} tokens to define runtime arguments.\n\nExample: "I want you to implement this ticket – {arg.ticket}"\n\nWhen you run this template, you\'ll be prompted to fill in each argument.';
 const ARGDEFS_HINT = 'One row per {arg.name} token detected above.\n\nDescription: shown as a hint when filling in the value.\nDefault: pre-filled when running – leave blank to require input.';

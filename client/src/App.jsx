@@ -9,6 +9,7 @@ import ScheduleManager from './components/ScheduleManager.jsx';
 import AutomationRunsPanel from './components/AutomationRunsPanel.jsx';
 import ProjectsManager from './components/ProjectsManager.jsx';
 import ScriptsManager from './components/ScriptsManager.jsx';
+import SessionsPanel from './components/SessionsPanel.jsx';
 import { getFileTree, getRelationships, saveFile, moveFile, getFile, getCommandRuns, streamRun } from './api.js';
 
 function NavItem({ icon, label, active, badge, badgeColor, onClick }) {
@@ -55,6 +56,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [runs, setRuns] = useState([]);
+  const [sessionCount, setSessionCount] = useState(null);
   const [rerunnableRun, setRerunnableRun] = useState(null);
   const [loadableTemplate, setLoadableTemplate] = useState(null);
 
@@ -261,7 +263,7 @@ export default function App() {
               display: 'flex', flexDirection: 'column', overflow: 'hidden'
             }}>
               <div style={{ padding: '8px 12px 6px', fontSize: 10, color: '#484f58', textTransform: 'uppercase', letterSpacing: 0.8, borderBottom: '1px solid #30363d' }}>
-                Explorer — ~/.claude
+                Explorer — vh-agents/.claude
               </div>
               <div style={{ flex: 1, overflow: 'auto' }}>
                 <FileExplorer
@@ -299,7 +301,7 @@ export default function App() {
                   background: '#161b22', borderBottom: '1px solid #30363d', flexShrink: 0
                 }}>
                   <span style={{ fontSize: 11, color: '#8b949e', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {selectedFile.replace(/.*\/\.claude\//, '~/.claude/')}
+                    {selectedFile.replace(/.*\/\.claude\//, 'vh-agents/.claude/')}
                   </span>
                   {isDirty && <span style={{ fontSize: 11, color: '#f0883e', flexShrink: 0 }}>●</span>}
                   {selectedFile.includes('/commands/') && (
@@ -360,7 +362,8 @@ export default function App() {
                 badgeColor={pausedRunCount > 0 ? '#b45309' : activeRunCount > 0 ? '#f0883e' : undefined}
                 onClick={() => setExecuteTab('runs')}
               />
-              <NavItem icon="⊞" label="Scripts" active={executeTab === 'scripts'} onClick={() => setExecuteTab('scripts')} />
+              <NavItem icon="◉" label="Sessions" active={executeTab === 'sessions'} badge={sessionCount || null} badgeColor={sessionCount ? '#238636' : undefined} onClick={() => setExecuteTab('sessions')} />
+              <NavItem icon="⊞" label="Scripts"active={executeTab === 'scripts'} onClick={() => setExecuteTab('scripts')} />
               <NavDivider />
               <NavItem icon="⚡" label="Webhooks" active={executeTab === 'webhooks'} onClick={() => setExecuteTab('webhooks')} />
               <NavItem icon="⏰" label="Scheduled Jobs" active={executeTab === 'schedules'} onClick={() => setExecuteTab('schedules')} />
@@ -403,6 +406,7 @@ export default function App() {
                   onReRun={run => { setRerunnableRun(run); setExecuteTab('runner'); }}
                 />
               )}
+              {executeTab === 'sessions' && <SessionsPanel onCount={setSessionCount} />}
               {executeTab === 'webhooks' && (
                 <WebhookManager onViewRuns={() => setExecuteTab('autoRuns')} />
               )}

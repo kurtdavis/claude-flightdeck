@@ -28,7 +28,7 @@ const BLANK_FORM = {
   // workflow fields
   workflowId: '', workflowArgs: '',
   // shared
-  projectPath: '', allowPermissions: true,
+  projectPath: '', allowPermissions: false,
 };
 
 function timeAgo(iso) {

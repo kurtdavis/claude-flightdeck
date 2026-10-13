@@ -1,0 +1,7 @@
+packages:
+  - client
+
+# pnpm 11 blocks dependency install scripts unless approved. esbuild's postinstall only
+# verifies/optimises its prebuilt binary, which ships via optionalDependencies.
+allowBuilds:
+  esbuild: false

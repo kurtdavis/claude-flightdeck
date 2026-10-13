@@ -7,6 +7,6 @@
     "command": "dev:investigate",
     "args": "MYPROJ",
     "projectPath": "/path/to/your/project",
-    "allowPermissions": true
+    "allowPermissions": false
   }
 ]

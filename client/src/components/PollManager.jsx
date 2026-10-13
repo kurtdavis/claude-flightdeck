@@ -13,7 +13,7 @@ const BLANK_FORM = {
   name: '', enabled: true, intervalMinutes: 30,
   jqlFilter: '', maxPerRun: 5,
   command: '', projectPath: '',
-  argTemplate: '{{key}}', allowPermissions: true
+  argTemplate: '{{key}}', allowPermissions: false
 };
 
 export default function PollManager({ onViewRuns }) {

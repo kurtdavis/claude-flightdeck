@@ -1,5 +1,10 @@
 const BASE = '/api';
 
+export async function getSessions() {
+  const r = await fetch(`${BASE}/sessions`);
+  return r.json();
+}
+
 export async function getFileTree() {
   const r = await fetch(`${BASE}/file-tree`);
   return r.json();

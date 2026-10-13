@@ -7,8 +7,58 @@ const os = require('os');
 const EventEmitter = require('events');
 
 const app = express();
-const PORT = 3001;
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+const PORT = Number(process.env.PORT) || 1337;
+const HOST = '127.0.0.1'; // loopback only — this server can launch agents, never expose it
+// Agent/skill/hook config the UI browses and edits: the vh-agents crew's .claude dir
+// (sibling repo). Override with FLIGHTDECK_CONFIG_DIR. ~/.claude is intentionally not used.
+const CONFIG_DIR = path.resolve(process.env.FLIGHTDECK_CONFIG_DIR || path.join(__dirname, '..', 'vh-agents', '.claude'));
+// MCP servers for vh-agents live in .mcp.json next to .claude/, not in settings.json
+const MCP_JSON = path.join(path.dirname(CONFIG_DIR), '.mcp.json');
+
+// Resolve symlinks on the deepest existing ancestor, so a link inside the config dir
+// can't be used to reach files outside it (works for paths that don't exist yet too)
+function resolveReal(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync(cur), ...tail.reverse()); } catch {}
+    const parent = path.dirname(cur);
+    if (parent === cur) return path.resolve(p);
+    tail.push(path.basename(cur));
+    cur = parent;
+  }
+}
+const CONFIG_DIR_REAL = resolveReal(CONFIG_DIR);
+
+// Secret-bearing files never go through the file API
+const SECRET_NAME = /^\.env(\.|$)|^\.npmrc$|\.(pem|key)$|^settings\.local\.json$/i;
+
+// True only if p is the config dir or inside it (after normalisation and symlink resolution).
+// write:true additionally refuses hooks/ and settings*.json, so the UI can't edit the guard
+// that vh-agents uses to protect secrets and gate risky actions.
+function isInConfigDir(p, { allowRoot = true, write = false } = {}) {
+  if (typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')) return false;
+  const real = resolveReal(p);
+  if (real === CONFIG_DIR_REAL) return allowRoot;
+  if (!real.startsWith(CONFIG_DIR_REAL + path.sep)) return false;
+  if (SECRET_NAME.test(path.basename(real))) return false;
+  if (write) {
+    const [top] = path.relative(CONFIG_DIR_REAL, real).split(path.sep);
+    if (top === 'hooks' || /^settings.*\.json$/.test(top)) return false;
+  }
+  return true;
+}
+
+if (!fs.existsSync(CONFIG_DIR)) console.warn(`  ⚠ config dir not found: ${CONFIG_DIR}`);
+
+// settings.json plus vh-agents' .mcp.json, merged into one { mcpServers, env } view
+function loadClaudeConfig() {
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'settings.json'), 'utf8')); } catch {}
+  let mcp = {};
+  try { mcp = JSON.parse(fs.readFileSync(MCP_JSON, 'utf8')); } catch {}
+  return { ...settings, mcpServers: { ...(mcp.mcpServers || {}), ...(settings.mcpServers || {}) } };
+}
 
 // Resolve full path to claude binary using the login shell (handles nvm, homebrew, etc.)
 let CLAUDE_BIN = 'claude';
@@ -31,8 +81,27 @@ const SKIP_DIRS = new Set([
   'node_modules', '.git', 'projects', 'todos'
 ]);
 
+// Reject unexpected Host headers (blocks DNS-rebinding against the loopback listener).
+// Add extra hosts, e.g. a tunnel for webhooks, via FLIGHTDECK_ALLOWED_HOSTS=host1,host2
+const ALLOWED_HOSTS = new Set([
+  `localhost:${PORT}`, `127.0.0.1:${PORT}`, 'localhost:5173', '127.0.0.1:5173',
+  ...(process.env.FLIGHTDECK_ALLOWED_HOSTS || '').split(',').map(h => h.trim()).filter(Boolean)
+]);
+app.use((req, res, next) => {
+  if (!ALLOWED_HOSTS.has(req.headers.host)) return res.status(403).json({ error: 'Host not allowed' });
+  next();
+});
+
+// Only the UI's own origins may make cross-origin browser calls; requests with no
+// Origin header (same-origin, curl, server-to-server webhooks) are unaffected
+const ALLOWED_ORIGINS = new Set([
+  `http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`,
+  'http://localhost:5173', 'http://127.0.0.1:5173'
+]);
+app.use(require('cors')({
+  origin: (origin, cb) => cb(null, !origin || ALLOWED_ORIGINS.has(origin))
+}));
 app.use(express.json({ limit: '10mb' }));
-app.use(require('cors')());
 
 // Extract the most human-readable field from a tool's input object
 function toolDetail(name, input) {
@@ -117,10 +186,7 @@ function getDirectories(dir) {
 // ─── Relationship parser ──────────────────────────────────────────────────────
 
 // Known agent aliases (short name used in files → actual agent file basename)
-const AGENT_ALIASES = {
-  'cicd-engineer': 'game-cicd-engineer',
-  'workflow-architect': 'workflow-architect'
-};
+const AGENT_ALIASES = {};
 
 function parseRelationships() {
   const nodes = [];
@@ -129,10 +195,10 @@ function parseRelationships() {
   const skillPathMap = new Map(); // 'domain/skill-name' -> node id  (for skills/domain/name/ path refs)
   const sourceFiles = []; // { id, path, type } to scan for references
 
-  const agentsDir = path.join(CLAUDE_DIR, 'agents');
-  const commandsDir = path.join(CLAUDE_DIR, 'commands');
-  const skillsDir = path.join(CLAUDE_DIR, 'skills');
-  const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
+  const agentsDir = path.join(CONFIG_DIR, 'agents');
+  const commandsDir = path.join(CONFIG_DIR, 'commands');
+  const skillsDir = path.join(CONFIG_DIR, 'skills');
+  const settingsPath = path.join(CONFIG_DIR, 'settings.json');
 
   // ── Agents
   try {
@@ -174,6 +240,16 @@ function parseRelationships() {
     const topDirs = getDirectories(skillsDir);
     topDirs.forEach(topDir => {
       const topName = path.basename(topDir);
+
+      // Flat layout (vh-agents): skills/<name>/SKILL.md; subdirs are references/assets, not skills
+      if (fs.existsSync(path.join(topDir, 'SKILL.md'))) {
+        const id = `skill:${topName}`;
+        nodes.push({ id, type: 'skill', label: topName, path: topDir });
+        if (!entityMap.has(topName)) entityMap.set(topName, id);
+        skillPathMap.set(topName, id);
+        return;
+      }
+
       const subDirs = getDirectories(topDir);
 
       if (subDirs.length > 0) {
@@ -221,8 +297,8 @@ function parseRelationships() {
   } catch {}
 
 
-  // ── Hook scripts from ~/.claude/hooks/ directory
-  const hooksDir = path.join(CLAUDE_DIR, 'hooks');
+  // ── Hook scripts from the config dir's hooks/ directory
+  const hooksDir = path.join(CONFIG_DIR, 'hooks');
   try {
     const hookFiles = fs.readdirSync(hooksDir, { withFileTypes: true });
     hookFiles
@@ -248,8 +324,18 @@ function parseRelationships() {
     const skillPathRefs = content.match(/skills\/[\w-]+\/[\w-]+\/?/g) || [];
     skillPathRefs.forEach(ref => {
       const key = ref.replace(/^skills\//, '').replace(/\/$/, ''); // domain/skill-name
-      const targetId = skillPathMap.get(`skills/${key}`) || skillPathMap.get(key);
+      const targetId = skillPathMap.get(`skills/${key}`) || skillPathMap.get(key) || skillPathMap.get(key.split('/')[0]);
       if (targetId && targetId !== sourceId) addEdge(edges, edgeSet, sourceId, targetId, 'uses', false);
+    });
+
+    // 1b. Frontmatter/prose `Agent(raoden, jasnah, Explore)` → spawns edges (animated)
+    (content.match(/\bAgent\(([^)]*)\)/g) || []).forEach(call => {
+      call.slice(6, -1).split(',').map(n => n.trim()).filter(Boolean).forEach(name => {
+        const targetId = entityMap.get(name);
+        if (targetId && targetId !== sourceId && targetId.startsWith('agent:')) {
+          addEdge(edges, edgeSet, sourceId, targetId, 'spawns', true);
+        }
+      });
     });
 
     // 2. "Spawn `agent-name`" or "Spawn agent-name" patterns → spawns edge (animated)
@@ -288,6 +374,14 @@ function parseRelationships() {
       });
     });
 
+    // 4b. "skill `name`" / "skills `name`" prose references (vh-agents convention) → uses edges
+    (content.match(/[Ss]kills?\s+`([\w-]+)`/g) || []).forEach(ref => {
+      const targetId = entityMap.get(ref.replace(/^[Ss]kills?\s+`/, '').slice(0, -1));
+      if (targetId && targetId !== sourceId && targetId.startsWith('skill:')) {
+        addEdge(edges, edgeSet, sourceId, targetId, 'uses', false);
+      }
+    });
+
     // 5. Bare skill name references (short name only, require exact match in entityMap)
     //    Only match known skill names that don't conflict with common words
     entityMap.forEach((targetId, name) => {
@@ -304,7 +398,7 @@ function parseRelationships() {
   });
 
   // ── External service nodes + edges ────────────────────────────────────────
-  // Services derived from mcpServers in settings.json
+  // Services derived from mcpServers in settings.json and .mcp.json
   const SERVICE_DEFS = {
     jira:       { label: 'Jira',       icon: 'J', keywords: ['Jira REST API', 'jira REST API', 'list_jira_projects', 'read_jira_issue', 'create_jira_issue'] },
     confluence: { label: 'Confluence', icon: 'C', keywords: ['Confluence REST API', 'confluence REST API', 'read_confluence_page', 'create_confluence_page', 'update_confluence_page', 'Confluence API'] },
@@ -333,7 +427,7 @@ function parseRelationships() {
   };
 
   try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const settings = loadClaudeConfig();
     const mcpServers = settings.mcpServers || {};
     const enabledServices = new Set();
 
@@ -393,13 +487,13 @@ function addEdge(edges, edgeSet, source, target, label, animated = false) {
 // ─── API Routes ───────────────────────────────────────────────────────────────
 
 app.get('/api/file-tree', (_req, res) => {
-  res.json(buildFileTree(CLAUDE_DIR));
+  res.json(buildFileTree(CONFIG_DIR));
 });
 
 app.get('/api/file', async (req, res) => {
   try {
     const filePath = req.query.path;
-    if (!filePath || !filePath.startsWith(os.homedir())) {
+    if (!isInConfigDir(filePath)) {
       return res.status(400).json({ error: 'Invalid path' });
     }
     const stat = fs.statSync(filePath);
@@ -416,7 +510,7 @@ app.get('/api/file', async (req, res) => {
 app.put('/api/file', async (req, res) => {
   try {
     const { path: filePath, content } = req.body;
-    if (!filePath || !filePath.startsWith(os.homedir())) {
+    if (!isInConfigDir(filePath, { allowRoot: false, write: true })) {
       return res.status(400).json({ error: 'Invalid path' });
     }
     await fsp.writeFile(filePath, content, 'utf8');
@@ -432,12 +526,12 @@ app.post('/api/move', async (req, res) => {
     // Supports batch: { moves: [{from, to}] } or single: { from, to }
     const moves = req.body.moves || [{ from: req.body.from, to: req.body.to }];
     for (const { from, to } of moves) {
-      if (!from?.startsWith(os.homedir()) || !to?.startsWith(os.homedir())) {
+      if (!isInConfigDir(from, { allowRoot: false, write: true }) || !isInConfigDir(to, { allowRoot: false, write: true })) {
         return res.status(400).json({ error: `Invalid path: ${from} → ${to}` });
       }
       await fsp.rename(from, to);
     }
-    res.json({ success: true, tree: buildFileTree(CLAUDE_DIR), relationships: parseRelationships() });
+    res.json({ success: true, tree: buildFileTree(CONFIG_DIR), relationships: parseRelationships() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -446,11 +540,11 @@ app.post('/api/move', async (req, res) => {
 app.post('/api/mkdir', async (req, res) => {
   try {
     const { path: dirPath } = req.body;
-    if (!dirPath?.startsWith(os.homedir())) {
+    if (!isInConfigDir(dirPath, { allowRoot: false, write: true })) {
       return res.status(400).json({ error: 'Invalid path' });
     }
     await fsp.mkdir(dirPath, { recursive: true });
-    res.json({ success: true, tree: buildFileTree(CLAUDE_DIR) });
+    res.json({ success: true, tree: buildFileTree(CONFIG_DIR) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -459,12 +553,9 @@ app.post('/api/mkdir', async (req, res) => {
 app.delete('/api/delete', async (req, res) => {
   try {
     const { path: targetPath } = req.body;
-    if (!targetPath?.startsWith(os.homedir())) {
+    // Never allows the config root itself
+    if (!isInConfigDir(targetPath, { allowRoot: false, write: true })) {
       return res.status(400).json({ error: 'Invalid path' });
-    }
-    // Safety: never delete the root claude dir itself
-    if (targetPath === CLAUDE_DIR) {
-      return res.status(400).json({ error: 'Cannot delete root claude directory' });
     }
     const stat = fs.statSync(targetPath);
     if (stat.isDirectory()) {
@@ -472,7 +563,7 @@ app.delete('/api/delete', async (req, res) => {
     } else {
       await fsp.unlink(targetPath);
     }
-    res.json({ success: true, tree: buildFileTree(CLAUDE_DIR), relationships: parseRelationships() });
+    res.json({ success: true, tree: buildFileTree(CONFIG_DIR), relationships: parseRelationships() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -486,10 +577,58 @@ app.get('/api/relationships', (_req, res) => {
   }
 });
 
+// ─── Live Claude Code sessions (vh-agents only) ──────────────────────────────
+
+// Claude Code writes one ~/.claude/sessions/<pid>.json per live session. This is the only
+// part of ~/.claude the server reads: read-only, strict filename pattern (the sibling
+// *.key files are never opened), field whitelist, and only sessions whose cwd is the
+// vh-agents repo root (the parent of CONFIG_DIR) or inside it, worktrees included.
+const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
+const SESSIONS_SCOPE_REAL = resolveReal(path.dirname(CONFIG_DIR));
+const SESSION_FILE = /^\d+\.json$/;
+const SESSIONS_POLL_DEFAULT = 15;
+const SESSIONS_POLL_MIN = 5;
+const envPoll = Number(process.env.FLIGHTDECK_SESSIONS_POLL_SECONDS);
+const SESSIONS_POLL_SECONDS = Number.isFinite(envPoll) && envPoll >= SESSIONS_POLL_MIN ? envPoll : SESSIONS_POLL_DEFAULT;
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+function listSessions() {
+  let files = [];
+  try { files = fs.readdirSync(SESSIONS_DIR).filter(f => SESSION_FILE.test(f)); } catch { return []; }
+  const sessions = [];
+  for (const f of files) {
+    let s;
+    try { s = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8')); } catch { continue; }
+    if (!Number.isInteger(s?.pid) || typeof s.cwd !== 'string' || !path.isAbsolute(s.cwd)) continue;
+    const cwd = resolveReal(s.cwd);
+    if (cwd !== SESSIONS_SCOPE_REAL && !cwd.startsWith(SESSIONS_SCOPE_REAL + path.sep)) continue;
+    if (!pidAlive(s.pid)) continue;
+    sessions.push({
+      pid: s.pid,
+      sessionId: s.sessionId,
+      name: s.name,
+      agent: s.agent || null,
+      status: s.status,
+      cwd: s.cwd,
+      startedAt: s.startedAt,
+      updatedAt: s.updatedAt,
+      version: s.version,
+    });
+  }
+  return sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+app.get('/api/sessions', (_req, res) => {
+  res.json({ pollSeconds: SESSIONS_POLL_SECONDS, minPollSeconds: SESSIONS_POLL_MIN, sessions: listSessions() });
+});
+
 // Returns configured MCP services with metadata
 app.get('/api/services', (_req, res) => {
   try {
-    const settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8'));
+    const settings = loadClaudeConfig();
     const mcpServers = settings.mcpServers || {};
     const services = [];
 
@@ -515,7 +654,7 @@ app.get('/api/services', (_req, res) => {
 // Lists Bitbucket repos from the configured workspace
 app.get('/api/bitbucket-repos', async (_req, res) => {
   try {
-    const settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8'));
+    const settings = loadClaudeConfig();
     const bbConfig = settings.mcpServers?.bitbucket;
     if (!bbConfig) return res.json([]);
 
@@ -594,13 +733,14 @@ app.post('/api/project-config', (req, res) => {
   res.json(cfg);
 });
 
-app.get('/api/projects', (_req, res) => {
+// Project discovery: named dev folders under ~ plus user-configured custom paths.
+// The home directory itself is deliberately not scanned.
+function listProjects() {
   const defaultBases = [
     path.join(os.homedir(), 'Documents/Repos'),
     path.join(os.homedir(), 'Projects'),
     path.join(os.homedir(), 'code'),
-    path.join(os.homedir(), 'dev'),
-    os.homedir()
+    path.join(os.homedir(), 'dev')
   ];
   const { customPaths = [] } = loadProjectConfig();
   const searchBases = [...defaultBases, ...customPaths];
@@ -633,14 +773,20 @@ app.get('/api/projects', (_req, res) => {
         });
     } catch {}
   });
-  res.json(projects);
-});
+  return projects;
+}
+
+app.get('/api/projects', (_req, res) => res.json(listProjects()));
 
 // Clean-delete a project: remove associated webhooks, polls, schedules, and command runs
 app.delete('/api/projects', (req, res) => {
   const { projectPath } = req.body;
   if (!projectPath || typeof projectPath !== 'string') {
     return res.status(400).json({ error: 'projectPath required' });
+  }
+  // Only directories the UI itself lists as projects may be deleted
+  if (!listProjects().some(p => p.path === projectPath)) {
+    return res.status(400).json({ error: 'Not a known project path' });
   }
 
   const removed = { webhooks: 0, polls: 0, schedules: 0, runs: 0 };
@@ -680,7 +826,7 @@ app.delete('/api/projects', (req, res) => {
 });
 
 app.get('/api/commands', (_req, res) => {
-  const commandsDir = path.join(CLAUDE_DIR, 'commands');
+  const commandsDir = path.join(CONFIG_DIR, 'commands');
   const commands = [];
   try {
     const domains = fs.readdirSync(commandsDir, { withFileTypes: true })
@@ -759,7 +905,7 @@ app.post('/api/run-claude', (req, res) => {
     prompt: rawPrompt,
     projectPath,
     projectName: path.basename(projectPath),
-    allowPermissions: allowPermissions !== false,
+    allowPermissions: allowPermissions === true,
     status: 'running',
     output: [],
     startTime: new Date().toISOString(),
@@ -951,7 +1097,7 @@ app.post('/api/run-claude/:runId/continue', (req, res) => {
   run.endTime = null;
   run.pausedForInput = false;
   run.sessionId = null;
-  run.allowPermissions = allowPermissions !== false;
+  run.allowPermissions = allowPermissions === true;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1227,10 +1373,12 @@ app.post('/webhooks/:triggerKey', (req, res) => {
   const config = loadWebhooks().find(w => w.triggerKey === req.params.triggerKey && w.enabled !== false);
   if (!config) return res.status(404).json({ error: 'Webhook trigger not found or disabled' });
 
-  // Optional secret validation via X-Webhook-Secret header
-  if (config.secret) {
-    const provided = req.headers['x-webhook-secret'];
-    if (provided !== config.secret) return res.status(401).json({ error: 'Invalid webhook secret' });
+  // Secret validation via X-Webhook-Secret header is mandatory
+  if (!config.secret) return res.status(403).json({ error: 'Webhook has no secret configured' });
+  const provided = Buffer.from(String(req.headers['x-webhook-secret'] || ''));
+  const expected = Buffer.from(String(config.secret));
+  if (provided.length !== expected.length || !require('crypto').timingSafeEqual(provided, expected)) {
+    return res.status(401).json({ error: 'Invalid webhook secret' });
   }
 
   const payload = req.body;
@@ -1254,7 +1402,7 @@ app.post('/webhooks/:triggerKey', (req, res) => {
     payload: JSON.stringify(payload).slice(0, 1000),
     status: 'running',
     output: [{ type: 'meta', message: `Triggered by webhook — ${prompt}` }],
-    allowPermissions: config.allowPermissions ?? true,
+    allowPermissions: config.allowPermissions ?? false,
     startTime: new Date().toISOString(),
     endTime: null,
     exitCode: null
@@ -1335,7 +1483,7 @@ app.post('/api/webhooks/:id/test', (req, res) => {
     payload: JSON.stringify(payload).slice(0, 1000),
     status: 'running',
     output: [{ type: 'meta', message: `Manual test — ${prompt}` }],
-    allowPermissions: config.allowPermissions ?? true,
+    allowPermissions: config.allowPermissions ?? false,
     startTime: new Date().toISOString(),
     endTime: null,
     exitCode: null
@@ -1380,7 +1528,7 @@ function savePolls(polls) {
 
 function getBitbucketConfig() {
   try {
-    const settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8'));
+    const settings = loadClaudeConfig();
     const bbConfig = settings.mcpServers?.bitbucket;
     if (!bbConfig) return null;
     const args = bbConfig.args || [];
@@ -1396,7 +1544,7 @@ function getBitbucketConfig() {
 function getAtlassianConfig() {
   try {
     // 1. Check plugins.local.md for jira_url + jira_pat (on-prem / PAT auth)
-    const pluginsPath = path.join(CLAUDE_DIR, 'plugins.local.md');
+    const pluginsPath = path.join(CONFIG_DIR, 'plugins.local.md');
     if (fs.existsSync(pluginsPath)) {
       const pluginsText = fs.readFileSync(pluginsPath, 'utf8');
       const jiraUrl = (pluginsText.match(/^jira_url:\s*(.+)$/m) || [])[1]?.trim();
@@ -1404,7 +1552,7 @@ function getAtlassianConfig() {
       if (jiraUrl && jiraPat) return { baseUrl: jiraUrl, pat: jiraPat };
     }
     // 2. Fall back to settings.json env vars (Atlassian Cloud / email+token)
-    const settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8'));
+    const settings = loadClaudeConfig();
     const mcpEnv = settings.mcpServers?.atlassian?.env || {};
     const settingsEnv = settings.env || {};
     const baseUrl = mcpEnv.ATLASSIAN_BASE_URL || settingsEnv.ATLASSIAN_BASE_URL || '';
@@ -1536,7 +1684,7 @@ function createPollRun(pollConfig, issue) {
     resolvedArgs: args,
     status: 'running',
     output: [{ type: 'meta', message: `Poll "${pollConfig.name}" — ${prompt}\n  issue: ${issue.key} — ${issueCtx.summary}` }],
-    allowPermissions: pollConfig.allowPermissions ?? true,
+    allowPermissions: pollConfig.allowPermissions ?? false,
     startTime: new Date().toISOString(),
     endTime: null,
     exitCode: null
@@ -1664,7 +1812,7 @@ async function runBitbucketCheck(pollConfig) {
       prompt, resolvedArgs,
       status: 'running',
       output: [{ type: 'meta', message: `Bitbucket Poll "${pollConfig.name}" — ${prompt}\n  commit: ${shortHash} — ${commitCtx.message}` }],
-      allowPermissions: pollConfig.allowPermissions ?? true,
+      allowPermissions: pollConfig.allowPermissions ?? false,
       startTime: new Date().toISOString(), endTime: null, exitCode: null,
     };
     addPollRun(run);
@@ -1805,7 +1953,7 @@ app.post('/api/polls/:id/test', async (req, res) => {
         prompt, resolvedArgs,
         status: 'running',
         output: [{ type: 'meta', message: `Test run — ${prompt}\n  commit: ${commitCtx.shortHash} — ${commitCtx.message}` }],
-        allowPermissions: config.allowPermissions ?? true,
+        allowPermissions: config.allowPermissions ?? false,
         startTime: new Date().toISOString(), endTime: null, exitCode: null,
       };
       addPollRun(run);
@@ -1860,7 +2008,7 @@ app.post('/api/templates', (req, res) => {
     name, description: description || '',
     command: command || '', args: args || '', freePrompt: freePrompt || '',
     projectPath: projectPath || '',
-    allowPermissions: allowPermissions !== false,
+    allowPermissions: allowPermissions === true,
     argDefs: Array.isArray(argDefs) ? argDefs : [],
     createdAt: new Date().toISOString()
   };
@@ -2252,7 +2400,7 @@ function triggerSchedule(schedule) {
     execId, source: 'schedule',
     scheduleId: schedule.id, scheduleName: schedule.name,
     prompt, projectPath: schedule.projectPath,
-    allowPermissions: schedule.allowPermissions !== false,
+    allowPermissions: schedule.allowPermissions === true,
     status: 'running', output: [],
     startTime: new Date().toISOString(), endTime: null, exitCode: null
   };
@@ -2322,7 +2470,7 @@ app.post('/api/schedules', (req, res) => {
     command: command || '', args: args || '', freePrompt: freePrompt || '',
     projectPath: projectPath || '',
     workflowId: workflowId || '', workflowArgs: workflowArgs || '',
-    allowPermissions: allowPermissions !== false,
+    allowPermissions: allowPermissions === true,
     enabled: enabled !== false,
     createdAt: new Date().toISOString(), lastRun: null,
     nextRun: new Date(Date.now() + (intervalMinutes || 30) * 60 * 1000).toISOString()
@@ -2412,6 +2560,6 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  Claude Flightdeck → http://localhost:${PORT}\n`);
+app.listen(PORT, HOST, () => {
+  console.log(`\n  Claude Flightdeck → http://localhost:${PORT} (bound to ${HOST})\n`);
 });

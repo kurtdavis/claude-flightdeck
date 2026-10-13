@@ -9,6 +9,6 @@
     "command": "dev:plan",
     "projectPath": "/path/to/your/project",
     "argTemplate": "{{key}} target=\"https://your-confluence/spaces/SPACE/pages/PAGE_ID\"",
-    "allowPermissions": true
+    "allowPermissions": false
   }
 ]

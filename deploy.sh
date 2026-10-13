@@ -3,7 +3,7 @@ set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="claude-flightdeck"
-PORT=3001
+PORT=1337
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 BOLD='\033[1m'; RESET='\033[0m'
@@ -16,12 +16,15 @@ die()  { echo -e "${RED}✗${RESET} $*"; exit 1; }
 
 echo -e "\n${BOLD}◈ Claude Manager — Deploy${RESET}\n"
 
+# ── Require pnpm ─────────────────────────────────────────────────────────────
+command -v pnpm &>/dev/null || die "pnpm not found — install it (https://pnpm.io/installation)"
+
 # ── Resolve pm2 ──────────────────────────────────────────────────────────────
 if command -v pm2 &>/dev/null; then
   PM2="pm2"
 else
-  PM2="npx pm2"
-  log "pm2 not in PATH — using npx"
+  PM2="pnpm dlx pm2"
+  log "pm2 not in PATH — using pnpm dlx"
 fi
 
 # ── Parse args ────────────────────────────────────────────────────────────────
@@ -31,18 +34,14 @@ case "$CMD" in
 
 # ── DEPLOY ───────────────────────────────────────────────────────────────────
 deploy)
-  # 1. Server deps
-  log "Installing server dependencies…"
-  (cd "$DIR" && npm install --omit=dev --silent)
-  ok "Server deps ready"
+  # 1. Install deps (pnpm workspace: server + client, lockfile enforced)
+  log "Installing dependencies…"
+  (cd "$DIR" && pnpm install --frozen-lockfile --silent)
+  ok "Dependencies ready"
 
-  # 2. Client deps + build
-  log "Installing client dependencies…"
-  (cd "$DIR/client" && npm install --silent)
-  ok "Client deps ready"
-
+  # 2. Build client
   log "Building client…"
-  (cd "$DIR/client" && npm run build 2>&1)
+  (cd "$DIR" && pnpm build 2>&1)
   ok "Client built → client/dist/"
 
   # 3. Start/restart via pm2

@@ -7,7 +7,7 @@
     "projectPath": "/path/to/your/project",
     "argTemplate": "{{jira-ticket}} target=\"{{plan-target}}\"",
     "secret": "",
-    "allowPermissions": true,
+    "allowPermissions": false,
     "enabled": false,
     "defaultPayload": "{\n  \"jira-ticket\": \"{TICKET-ID or URL}\",\n  \"plan-target\": \"{Confluence page URL}\"\n}"
   }

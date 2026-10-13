@@ -19,7 +19,7 @@ export default function ClaudeRunner({ selectedFile, addRun, updateRun, appendRu
   const [cmdContext, setCmdContext] = useState('');
   const [freePrompt, setFreePrompt] = useState('');
   const [projectPath, setProjectPath] = useState('');
-  const [allowPermissions, setAllowPermissions] = useState(true);
+  const [allowPermissions, setAllowPermissions] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -34,7 +34,7 @@ export default function ClaudeRunner({ selectedFile, addRun, updateRun, appendRu
   // Auto-select command when a command file is selected in FileExplorer
   useEffect(() => {
     if (!selectedFile) return;
-    // Match ~/.claude/commands/<domain>/<name>.md
+    // Match <config>/commands/<domain>/<name>.md
     const match = selectedFile.match(/\/commands\/([^/]+)\/([^/]+)\.md$/);
     if (match) {
       const cmdId = `${match[1]}:${match[2]}`;
@@ -75,7 +75,7 @@ export default function ClaudeRunner({ selectedFile, addRun, updateRun, appendRu
       setFreePrompt(prompt);
     }
     setProjectPath(rerunnableRun.projectPath || '');
-    setAllowPermissions(rerunnableRun.allowPermissions ?? true);
+    setAllowPermissions(rerunnableRun.allowPermissions ?? false);
     setProjectTab('local');
     onRerunnableConsumed?.();
   }, [rerunnableRun, commands]);
@@ -98,7 +98,7 @@ export default function ClaudeRunner({ selectedFile, addRun, updateRun, appendRu
       setProjectPath(loadableTemplate.projectPath);
       setProjectTab('local');
     }
-    setAllowPermissions(loadableTemplate.allowPermissions ?? true);
+    setAllowPermissions(loadableTemplate.allowPermissions ?? false);
     onLoadableConsumed?.();
   }, [loadableTemplate, commands]);
 

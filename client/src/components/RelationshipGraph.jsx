@@ -390,7 +390,7 @@ function buildEdges(rawEdges) {
 function DetailPanel({ node, allEdges, allNodes, onOpenEditor, onRunCommand, onFocus, isFocused, onClose }) {
   if (!node) return null;
   const c = NODE_COLORS[node.type] || NODE_COLORS.agent;
-  const filePath = node.path?.replace(/.*\/\.claude\//, '~/.claude/') || '';
+  const filePath = node.path?.replace(/.*\/\.claude\//, 'vh-agents/.claude/') || '';
 
   const connections = allEdges
     .filter(e => e.source === node.id || e.target === node.id)
@@ -613,7 +613,7 @@ function Toolbar({ search, onSearch, count, total, expanded, onToggleExpanded, v
 function Tooltip({ node, pos }) {
   if (!node) return null;
   const c = NODE_COLORS[node.raw?.displayCategory] || NODE_COLORS[node.raw?.type] || NODE_COLORS.agent;
-  const filePath = node.raw?.path?.replace(/.*\/\.claude\//, '~/.claude/') || '';
+  const filePath = node.raw?.path?.replace(/.*\/\.claude\//, 'vh-agents/.claude/') || '';
   return (
     <div style={{
       position: 'absolute', left: pos.x + 16, top: pos.y - 8, zIndex: 20,
