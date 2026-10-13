@@ -9,6 +9,7 @@ import ScheduleManager from './components/ScheduleManager.jsx';
 import AutomationRunsPanel from './components/AutomationRunsPanel.jsx';
 import ProjectsManager from './components/ProjectsManager.jsx';
 import ScriptsManager from './components/ScriptsManager.jsx';
+import SessionsPanel from './components/SessionsPanel.jsx';
 import { getFileTree, getRelationships, saveFile, moveFile, getFile, getCommandRuns, streamRun } from './api.js';
 
 function NavItem({ icon, label, active, badge, badgeColor, onClick }) {
@@ -55,6 +56,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [runs, setRuns] = useState([]);
+  const [sessionCount, setSessionCount] = useState(null);
   const [rerunnableRun, setRerunnableRun] = useState(null);
   const [loadableTemplate, setLoadableTemplate] = useState(null);
 
@@ -360,7 +362,8 @@ export default function App() {
                 badgeColor={pausedRunCount > 0 ? '#b45309' : activeRunCount > 0 ? '#f0883e' : undefined}
                 onClick={() => setExecuteTab('runs')}
               />
-              <NavItem icon="⊞" label="Scripts" active={executeTab === 'scripts'} onClick={() => setExecuteTab('scripts')} />
+              <NavItem icon="◉" label="Sessions" active={executeTab === 'sessions'} badge={sessionCount || null} badgeColor={sessionCount ? '#238636' : undefined} onClick={() => setExecuteTab('sessions')} />
+              <NavItem icon="⊞" label="Scripts"active={executeTab === 'scripts'} onClick={() => setExecuteTab('scripts')} />
               <NavDivider />
               <NavItem icon="⚡" label="Webhooks" active={executeTab === 'webhooks'} onClick={() => setExecuteTab('webhooks')} />
               <NavItem icon="⏰" label="Scheduled Jobs" active={executeTab === 'schedules'} onClick={() => setExecuteTab('schedules')} />
@@ -403,6 +406,7 @@ export default function App() {
                   onReRun={run => { setRerunnableRun(run); setExecuteTab('runner'); }}
                 />
               )}
+              {executeTab === 'sessions' && <SessionsPanel onCount={setSessionCount} />}
               {executeTab === 'webhooks' && (
                 <WebhookManager onViewRuns={() => setExecuteTab('autoRuns')} />
               )}

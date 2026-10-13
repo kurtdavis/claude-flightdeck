@@ -577,6 +577,54 @@ app.get('/api/relationships', (_req, res) => {
   }
 });
 
+// ─── Live Claude Code sessions (vh-agents only) ──────────────────────────────
+
+// Claude Code writes one ~/.claude/sessions/<pid>.json per live session. This is the only
+// part of ~/.claude the server reads: read-only, strict filename pattern (the sibling
+// *.key files are never opened), field whitelist, and only sessions whose cwd is the
+// vh-agents repo root (the parent of CONFIG_DIR) or inside it, worktrees included.
+const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
+const SESSIONS_SCOPE_REAL = resolveReal(path.dirname(CONFIG_DIR));
+const SESSION_FILE = /^\d+\.json$/;
+const SESSIONS_POLL_DEFAULT = 15;
+const SESSIONS_POLL_MIN = 5;
+const envPoll = Number(process.env.FLIGHTDECK_SESSIONS_POLL_SECONDS);
+const SESSIONS_POLL_SECONDS = Number.isFinite(envPoll) && envPoll >= SESSIONS_POLL_MIN ? envPoll : SESSIONS_POLL_DEFAULT;
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+function listSessions() {
+  let files = [];
+  try { files = fs.readdirSync(SESSIONS_DIR).filter(f => SESSION_FILE.test(f)); } catch { return []; }
+  const sessions = [];
+  for (const f of files) {
+    let s;
+    try { s = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8')); } catch { continue; }
+    if (!Number.isInteger(s?.pid) || typeof s.cwd !== 'string' || !path.isAbsolute(s.cwd)) continue;
+    const cwd = resolveReal(s.cwd);
+    if (cwd !== SESSIONS_SCOPE_REAL && !cwd.startsWith(SESSIONS_SCOPE_REAL + path.sep)) continue;
+    if (!pidAlive(s.pid)) continue;
+    sessions.push({
+      pid: s.pid,
+      sessionId: s.sessionId,
+      name: s.name,
+      agent: s.agent || null,
+      status: s.status,
+      cwd: s.cwd,
+      startedAt: s.startedAt,
+      updatedAt: s.updatedAt,
+      version: s.version,
+    });
+  }
+  return sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+app.get('/api/sessions', (_req, res) => {
+  res.json({ pollSeconds: SESSIONS_POLL_SECONDS, minPollSeconds: SESSIONS_POLL_MIN, sessions: listSessions() });
+});
+
 // Returns configured MCP services with metadata
 app.get('/api/services', (_req, res) => {
   try {
